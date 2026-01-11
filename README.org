@@ -328,6 +328,8 @@ For no authentication (when using alternative authentication methods):
 #+begin_src emacs-lisp
 (setq agent-shell-auggie-authentication
       (agent-shell-make-auggie-authentication :none t))
+#+end_src
+
 *** Mistral Vibe
 
 For API key authentication:
