@@ -153,8 +153,7 @@ Arguments:
                                     display-buffer-same-window))))))
 
 (defun agent-shell-diff--insert-diff (old new file buf)
-  "Insert diff from FILE between OLD and NEW strings in buffer BUF.
-Returns the diff output as a string."
+  "Insert diff from FILE between OLD and NEW strings in buffer BUF."
   (let* ((suffix (format ".%s" (file-name-extension file)))
          (old-file (make-temp-file "old" nil suffix))
          (new-file (make-temp-file "new" nil suffix)))
