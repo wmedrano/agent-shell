@@ -67,6 +67,7 @@
 (require 'agent-shell-heartbeat)
 (require 'agent-shell-viewport)
 (require 'agent-shell-droid)
+(require 'image)
 
 (declare-function projectile-current-project-files "projectile")
 (declare-function projectile-project-root "projectile")
