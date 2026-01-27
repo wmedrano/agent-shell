@@ -214,7 +214,7 @@ See `acp-make-initialize-request' for details."
   :group 'agent-shell)
 
 (defcustom agent-shell-write-inhibit-minor-modes '(aggressive-indent-mode)
-  "List of minor mode commands to inhibit while applying `fs/write_text_file' edits.
+  "List of minor mode commands to inhibit during `fs/write_text_file' edits.
 
 Each element is a minor mode command symbol, such as
 `aggressive-indent-mode'.
