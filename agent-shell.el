@@ -922,6 +922,11 @@ otherwise returns COMMAND unchanged."
                                                 "bash"))
                                       (command (map-nested-elt update '(rawInput command))))
                             (list (cons :title command)))
+                          (when-let* ((title (or (map-nested-elt state `(:tool-calls ,.toolCallId :title)) ""))
+                                      (command (or (map-nested-elt update '(rawInput command))
+                                                   (map-nested-elt state `(:tool-calls ,.toolCallId :command))))
+                                      (should-upgrade-title (not (string-match command title))))
+                            (list (cons :title (concat command " " title))))
                           (when-let ((diff (agent-shell--make-diff-info :tool-call update)))
                             (list (cons :diff diff)))))
                  (let* ((diff (map-nested-elt state `(:tool-calls ,.toolCallId :diff)))
@@ -3224,6 +3229,15 @@ For example:
                                  (with-current-buffer shell-buffer
                                    (agent-shell-interrupt t))))
                    map))
+         (title (let ((title (map-nested-elt request '(params toolCall title)))
+                      (command (map-nested-elt request '(params toolCall rawInput command))))
+                  ;; Some agents don't include the command in the
+                  ;; permission/tool call title, so it's hard to know
+                  ;; what the permission is actually allowing.
+                  ;; Display command if needed.
+                  (if (string-match command title)
+                      title
+                    (or command title))))
          (diff-button (when diff
                         (agent-shell--make-permission-button
                          :text "View (v)"
@@ -3253,9 +3267,9 @@ For example:
             (propertize "Tool Permission" 'font-lock-face 'bold)
             (propertize agent-shell-permission-icon
                         'font-lock-face 'warning)
-            (if (map-nested-elt request '(params toolCall title))
+            (if title
                 (propertize
-                 (format "\n\n\n    %s" (map-nested-elt request '(params toolCall title)))
+                 (format "\n\n\n    %s" title)
                  'font-lock-face 'comint-highlight-input)
               "")
             (if diff-button
