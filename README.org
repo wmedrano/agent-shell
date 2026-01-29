@@ -120,6 +120,16 @@ npm install -g droid-acp
 
 See https://github.com/yaonyan/droid-acp for details.
 
+*** Pi
+
+For Pi coding agent, install the =pi-acp= adapter:
+
+#+begin_src bash
+npm install -g pi-acp
+#+end_src
+
+See https://github.com/svkozak/pi-acp for details.
+
 ** Installation
 
 =agent-shell= is powered by built-in =comint-shell=, via [[https://github.com/xenodium/shell-maker][shell-maker]], available on [[https://melpa.org/#/shell-maker][MELPA]].
@@ -372,6 +382,7 @@ Start a specific agent shell session directly:
 - =M-x agent-shell-mistral-start-vibe= - Start a Mistral Vibe agent session
 - =M-x agent-shell-qwen-start= - Start a Qwen Code agent session
 - =M-x agent-shell-droid-start-agent= - Start a Factory Droid agent session
+- =M-x agent-shell-pi-start-agent= - Start a Pi coding agent session
 
 *** Setting a default agent for all new shells
 
