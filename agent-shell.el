@@ -422,7 +422,7 @@ package. See documentation of that package for more configuration:
                        claude-code-ide-mcp-server--sessions)
               `((name . \"emacs\")
                 (type . \"http\")
-                (headers . [])
+                (headers . ())
                 (url . ,(format \"http://localhost:%d/mcp/%s\"
                            (claude-code-ide-mcp-server-ensure-server)
                            session-id)))))))"
