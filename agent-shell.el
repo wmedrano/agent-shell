@@ -595,11 +595,21 @@ Returns an empty string if no icon should be displayed."
     (map-elt choices selected-name)))
 
 (defun agent-shell-buffers ()
-  "Return all shell buffers."
-  (seq-filter (lambda (buffer)
-                (with-current-buffer buffer
-                  (derived-mode-p 'agent-shell-mode)))
-              (buffer-list)))
+  "Return all shell buffers ordered by recent access.
+Includes shells accessed via viewport buffers, preserving visited order."
+  (let (shell-buffers seen)
+    (dolist (buffer (buffer-list))
+      (with-current-buffer buffer
+        (when-let ((shell-buffer
+                    (cond ((derived-mode-p 'agent-shell-mode)
+                           buffer)
+                          ((or (derived-mode-p 'agent-shell-viewport-view-mode)
+                               (derived-mode-p 'agent-shell-viewport-edit-mode))
+                           (agent-shell-viewport--shell-buffer buffer)))))
+          (unless (memq shell-buffer seen)
+            (push shell-buffer seen)
+            (push shell-buffer shell-buffers)))))
+    (nreverse shell-buffers)))
 
 (defun agent-shell-other-buffer ()
   "Switch to other associated buffer (viewport vs shell)."
