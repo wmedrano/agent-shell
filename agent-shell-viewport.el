@@ -90,9 +90,9 @@ Returns an alist with insertion details or nil otherwise:
     (let ((current (current-buffer)))
       (pop-to-buffer-same-window shell-buffer)
       (pop-to-buffer-same-window current)))
-  (when-let ((shell-buffer (or shell-buffer (agent-shell--shell-buffer)))
-             (viewport-buffer (agent-shell-viewport--buffer :shell-buffer shell-buffer))
-             (text (or text (agent-shell--context) "")))
+  (when-let* ((shell-buffer (or shell-buffer (agent-shell--shell-buffer)))
+              (viewport-buffer (agent-shell-viewport--buffer :shell-buffer shell-buffer))
+              (text (or text (agent-shell--context :shell-buffer shell-buffer) "")))
     (let ((insert-start nil)
           (insert-end nil))
       ;; Is there text to be inserted? Reject while busy.

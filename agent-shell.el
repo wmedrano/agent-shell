@@ -291,8 +291,8 @@ Assume screenshot file path will be appended to this list."
   "Format to use when generating agent shell buffer names.
 
 Each element can be:
-- Default: For example 'Claude Code Agent @ My Project'
-- Kebab case: For example 'claude-code-agent @ my-project'
+- Default: For example \='Claude Code Agent @ My Project\='
+- Kebab case: For example \='claude-code-agent @ my-project\='
 - A function: Called with agent name and project name."
   :type '(choice (const :tag "Default" default)
                  (const :tag "Kebab case" kebab-case)
@@ -551,14 +551,15 @@ handles viewport mode detection, existing shell reuse, and project context."
                    (derived-mode-p 'agent-shell-viewport-edit-mode)))
           (agent-shell-toggle)
         (agent-shell-viewport--show-buffer
-         :shell-buffer (when new-shell
-                         (agent-shell--start :config (or config
-                                                         (agent-shell--resolve-preferred-config)
-                                                         (agent-shell-select-config
-                                                          :prompt "Start new agent: ")
-                                                         (error "No agent config found"))
-                                             :no-focus t
-                                             :new-session t))))
+         :shell-buffer (if new-shell
+                           (agent-shell--start :config (or config
+                                                           (agent-shell--resolve-preferred-config)
+                                                           (agent-shell-select-config
+                                                            :prompt "Start new agent: ")
+                                                           (error "No agent config found"))
+                                               :no-focus t
+                                               :new-session t)
+                         (agent-shell--shell-buffer))))
     (if new-shell
         (agent-shell-start :config (or config
                                        (agent-shell--resolve-preferred-config)
@@ -567,37 +568,42 @@ handles viewport mode detection, existing shell reuse, and project context."
                                        (error "No agent config found")))
       (if (and (not new-shell)
                (derived-mode-p 'agent-shell-mode))
-          (let ((text (agent-shell--context)))
+          (let* ((shell-buffer (agent-shell--shell-buffer :no-create t))
+                 (text (agent-shell--context :shell-buffer shell-buffer)))
             (agent-shell-toggle)
             (when text
-              (agent-shell--insert-to-shell-buffer :text text)))
+              (agent-shell--insert-to-shell-buffer :text text
+                                                   :shell-buffer shell-buffer)))
         (if-let ((existing-shell (seq-first (agent-shell-project-buffers))))
-            (let ((text (agent-shell--context)))
+            (let ((text (agent-shell--context :shell-buffer existing-shell)))
               (agent-shell--display-buffer existing-shell)
               (when text
                 (agent-shell--insert-to-shell-buffer :text text)))
           (if-let ((other-project-shell (seq-first (agent-shell-buffers))))
               (if (y-or-n-p "No shells in project.  Start a new one? ")
-                  (let ((text (agent-shell--context)))
-                    (agent-shell-start :config (or config
-                                                   (agent-shell--resolve-preferred-config)
-                                                   (agent-shell-select-config
-                                                    :prompt "Start new agent: ")
-                                                   (error "No agent config found")))
+                  (let* ((shell-buffer (agent-shell-start :config (or config
+                                                                      (agent-shell--resolve-preferred-config)
+                                                                      (agent-shell-select-config
+                                                                       :prompt "Start new agent: ")
+                                                                      (error "No agent config found"))))
+                         (text (agent-shell--context :shell-buffer shell-buffer)))
                     (when text
-                      (agent-shell--insert-to-shell-buffer :text text)))
-                (let ((text (agent-shell--context)))
+                      (agent-shell--insert-to-shell-buffer :text text
+                                                           :shell-buffer shell-buffer)))
+                (let ((text (agent-shell--context :shell-buffer other-project-shell)))
                   (agent-shell--display-buffer other-project-shell)
                   (when text
-                    (agent-shell--insert-to-shell-buffer :text text))))
-            (let ((text (agent-shell--context)))
-              (agent-shell-start :config (or config
-                                             (agent-shell--resolve-preferred-config)
-                                             (agent-shell-select-config
-                                              :prompt "Start new agent: ")
-                                             (error "No agent config found")))
+                    (agent-shell--insert-to-shell-buffer :text text
+                                                         :shell-buffer other-project-shell))))
+            (let* ((shell-buffer (agent-shell-start :config (or config
+                                                                (agent-shell--resolve-preferred-config)
+                                                                (agent-shell-select-config
+                                                                 :prompt "Start new agent: ")
+                                                                (error "No agent config found"))))
+                   (text (agent-shell--context :shell-buffer shell-buffer)))
               (when text
-                (agent-shell--insert-to-shell-buffer :text text)))))))))
+                (agent-shell--insert-to-shell-buffer :text text
+                                                     :shell-buffer shell-buffer)))))))))
 
 ;;;###autoload
 (defun agent-shell-toggle ()
@@ -3105,9 +3111,10 @@ If FILE-PATH is not an image, returns nil."
 
 Resolution order:
 1. If VIEWPORT-BUFFER is provided, derive shell buffer from its name.
-2. If inside of a viewport buffer, derive shell bufer from its name.
+2. If inside of a viewport buffer, derive shell buffer from its name.
 3. If currently in an `agent-shell-mode' buffer, return it.
-4. Otherwise, return the first shell buffer in the current project.
+4. If there are shells in current project, return the first one found.
+5. Otherwise, return the first shell buffer in any project.
 
 When NO-CREATE is nil (default), prompt to create a new shell if none exists.
 When NO-CREATE is non-nil, return existing shell or nil/error if none exists.
@@ -3838,26 +3845,36 @@ Returns an alist with insertion details or nil otherwise:
   "Send region to last accessed shell buffer in project."
   (interactive)
   (agent-shell-insert
-   :text (agent-shell--get-region-context :deactivate t :no-error t)))
+   :text (agent-shell--get-region-context
+          :deactivate t :no-error t
+          :agent-cwd (when-let ((shell-buffer (agent-shell--shell-buffer
+                                               :no-create t
+                                               :no-error t)))
+                       (with-current-buffer shell-buffer
+                         (agent-shell-cwd))))))
 
 (cl-defun agent-shell-send-dwim ()
   "Send region or error at point to last accessed shell buffer in project."
   (interactive)
   (agent-shell-insert :text (agent-shell--context)))
 
-(cl-defun agent-shell--get-region-context (&key deactivate no-error)
+(cl-defun agent-shell--get-region-context (&key deactivate no-error agent-cwd)
   "Get region as insertable text, ready for sending to agent.
 
 When DEACTIVATE is non-nil, deactivate region.
 
-When NO-ERROR is non-nil, return nil and continue without error."
+When NO-ERROR is non-nil, return nil and continue without error.
+
+Uses AGENT-CWD to shorten file paths where necessary."
   (let* ((region (or (agent-shell--get-region :deactivate deactivate)
                      (unless no-error
                        (user-error "No region selected"))))
          (processed-text (if (map-elt region :file)
                              (let ((file-link (agent-shell-ui-add-action-to-text
                                                (format "%s:%d-%d"
-                                                       (map-elt region :file)
+                                                       (if (and agent-cwd (file-in-directory-p (map-elt region :file) agent-cwd))
+                                                           (file-relative-name (map-elt region :file) agent-cwd)
+                                                         (map-elt region :file))
                                                        (map-elt region :line-start)
                                                        (map-elt region :line-end))
                                                (lambda ()
@@ -4062,38 +4079,43 @@ Tries flymake first, then flycheck."
   (or (agent-shell--get-flymake-error-context)
       (agent-shell--get-flycheck-error-context)))
 
-(defun agent-shell--get-current-line-context ()
-  "Get the current line as insertable text, ready for sending to agent."
+(cl-defun agent-shell--get-current-line-context (&key agent-cwd)
+  "Get the current line as insertable text, ready for sending to agent.
+
+Uses AGENT-CWD to shorten file paths where necessary."
   (save-excursion
     (let ((start (line-beginning-position))
           (end (line-end-position)))
       (goto-char start)
       (set-mark end)
       (activate-mark)
-      (agent-shell--get-region-context :deactivate t :no-error t))))
+      (agent-shell--get-region-context :deactivate t :no-error t :agent-cwd agent-cwd))))
 
-(defun agent-shell--context ()
+(cl-defun agent-shell--context (&key shell-buffer)
   "Return context (if available).  Nil otherwise.
+
+Uses optional SHELL-BUFFER to make paths relative to shell project.
 
 Context could be either a region or error at point or files.
 The sources checked are controlled by `agent-shell-context-sources'."
   (unless (derived-mode-p 'agent-shell-mode)
-    (seq-some
-     (lambda (source)
-       (pcase source
-         ('files (agent-shell--get-files-context
-                  :files (agent-shell--buffer-files :obvious t)
-                  :agent-cwd (when-let ((shell-buffer (agent-shell--shell-buffer
-                                                       :no-create t
-                                                       :no-error t)))
-                               (with-current-buffer shell-buffer
-                                 (agent-shell-cwd)))))
-         ('region (agent-shell--get-region-context
-                   :deactivate t :no-error t))
-         ('error (agent-shell--get-error-context))
-         ('line (agent-shell--get-current-line-context))
-         ((pred functionp) (funcall source))))
-     agent-shell-context-sources)))
+    (let ((agent-cwd (when shell-buffer
+                       (with-current-buffer shell-buffer
+                         (agent-shell-cwd)))))
+      (seq-some
+       (lambda (source)
+         (pcase source
+           ('files (agent-shell--get-files-context
+                    :files (agent-shell--buffer-files :obvious t)
+                    :agent-cwd agent-cwd))
+           ('region (agent-shell--get-region-context
+                     :deactivate t :no-error t
+                     :agent-cwd agent-cwd))
+           ('error (agent-shell--get-error-context))
+           ('line (agent-shell--get-current-line-context
+                   :agent-cwd agent-cwd))
+           ((pred functionp) (funcall source))))
+       agent-shell-context-sources))))
 
 (cl-defun agent-shell--get-region (&key deactivate)
   "Get the active region as an alist.
@@ -4108,8 +4130,7 @@ Available values:
           (end (region-end))
           (content (buffer-substring-no-properties (region-beginning) (region-end)))
           (language (string-remove-suffix "-mode" (string-remove-suffix "-ts-mode" (symbol-name major-mode))))
-          (file (when-let ((buffer-file-name (buffer-file-name)))
-                  (file-relative-name buffer-file-name (agent-shell-cwd)))))
+          (file (buffer-file-name)))
       (when deactivate
         (deactivate-mark))
       `((:file . ,file)
