@@ -2238,7 +2238,7 @@ BINDINGS is a list of alists defining key bindings to display, each with:
   (unless state
     (error "STATE is required"))
   (let* ((header-model (agent-shell--make-header-model state :qualifier qualifier :bindings bindings))
-         (text-header (format " %s%s%s @ %s"
+         (text-header (format " %s%s%s @ %s%s"
                               (propertize (concat (map-elt header-model :buffer-name) " Agent")
                                           'font-lock-face 'font-lock-variable-name-face)
                               (if (map-elt header-model :model-name)
@@ -2248,7 +2248,10 @@ BINDINGS is a list of alists defining key bindings to display, each with:
                                   (concat " ➤ " (propertize (map-elt header-model :mode-name) 'font-lock-face 'font-lock-type-face))
                                 "")
                               (propertize (string-remove-suffix "/" (abbreviate-file-name (map-elt header-model :directory)))
-                                          'font-lock-face 'font-lock-string-face))))
+                                          'font-lock-face 'font-lock-string-face)
+                              (if (map-elt header-model :status-frame)
+                                  (map-elt header-model :status-frame)
+                                ""))))
     (pcase agent-shell-header-style
       ((or 'none (pred null)) nil)
       ('text text-header)
