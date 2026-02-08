@@ -555,6 +555,41 @@ Extracts context window and cost information from usage_update notification."
     (map-put! state :usage usage-state)))
 
 
+(defun agent-shell--format-number-compact (num)
+  "Format NUM compactly with k/m/b suffixes."
+  (cond
+   ((>= num 1000000000) (format "%.0fb" (/ num 1000000000.0)))
+   ((>= num 1000000) (format "%.0fm" (/ num 1000000.0)))
+   ((>= num 1000) (format "%.0fk" (/ num 1000.0)))
+   (t (format "%d" num))))
+
+(defun agent-shell-show-usage ()
+  "Display current session usage information in the minibuffer.
+This is a stub UI function for testing usage tracking before implementing
+a more polished presentation method."
+  (interactive)
+  (if (not (derived-mode-p 'agent-shell-mode))
+      (message "Not in an agent-shell buffer")
+    (message "%s" (agent-shell--format-usage (map-elt agent-shell--state :usage)))))
+
+(defun agent-shell--format-usage (usage)
+  "Format USAGE data as a display string.
+USAGE should be an alist/plist with keys for token counts, context, and cost."
+  (format "Context: %s/%s%s | Usage: %s total tokens (%s in, %s out%s%s%s) | Cost: %s%s"
+          (if (> (or (map-elt usage :context-used) 0) 0) (agent-shell--format-number-compact (or (map-elt usage :context-used) 0)) "0")
+          (if (> (or (map-elt usage :context-size) 0) 0) (agent-shell--format-number-compact (or (map-elt usage :context-size) 0)) "?")
+          (if (and (map-elt usage :context-size) (> (map-elt usage :context-size) 0))
+              (format " (%.1f%%)" (* 100.0 (/ (float (or (map-elt usage :context-used) 0)) (map-elt usage :context-size))))
+            "")
+          (if (> (or (map-elt usage :total-tokens) 0) 0) (agent-shell--format-number-compact (or (map-elt usage :total-tokens) 0)) "0")
+          (if (> (or (map-elt usage :input-tokens) 0) 0) (agent-shell--format-number-compact (or (map-elt usage :input-tokens) 0)) "0")
+          (if (> (or (map-elt usage :output-tokens) 0) 0) (agent-shell--format-number-compact (or (map-elt usage :output-tokens) 0)) "0")
+          (if (and (map-elt usage :thought-tokens) (> (map-elt usage :thought-tokens) 0)) (format ", %s thought" (agent-shell--format-number-compact (map-elt usage :thought-tokens))) "")
+          (if (and (map-elt usage :cached-read-tokens) (> (map-elt usage :cached-read-tokens) 0)) (format ", %s cached-read" (agent-shell--format-number-compact (map-elt usage :cached-read-tokens))) "")
+          (if (and (map-elt usage :cached-write-tokens) (> (map-elt usage :cached-write-tokens) 0)) (format ", %s cached-write" (agent-shell--format-number-compact (map-elt usage :cached-write-tokens))) "")
+          (if (map-elt usage :cost-currency) (format "%s " (map-elt usage :cost-currency)) "$")
+          (if (and (map-elt usage :cost-amount) (> (map-elt usage :cost-amount) 0)) (format "%.2f" (map-elt usage :cost-amount)) "0.00")))
+
 (defvar-local agent-shell--transcript-file nil
   "Path to the shell's transcript file.")
 
