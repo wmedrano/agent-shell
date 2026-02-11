@@ -650,9 +650,19 @@ Always prompts for agent selection, even if existing shells are available."
 
 ;;;###autoload
 (defun agent-shell-prompt-compose ()
-  "Compose an `agent-shell' prompt in a dedicated buffer."
+  "Compose an `agent-shell' prompt in a dedicated buffer.
+
+If currently visiting an `agent-shell', transfer latest input."
   (interactive)
-  (agent-shell-viewport--show-buffer))
+  (if-let (((derived-mode-p 'agent-shell-mode))
+           ((shell-maker-point-at-last-prompt-p))
+           (input (agent-shell--input)))
+      (progn
+        ;; Clear shell prompt as it's now
+        ;; transferred to the compose buffer.
+        (comint-kill-input)
+        (agent-shell-viewport--show-buffer :override input))
+    (agent-shell-viewport--show-buffer)))
 
 (cl-defun agent-shell-start (&key config)
   "Programmatically start shell with CONFIG.
@@ -3215,6 +3225,19 @@ Returns a buffer object or nil."
                                          (current-buffer)))
                                 (agent-shell-buffers))))))
 
+(defun agent-shell--input ()
+  "Return shell input (not yet submitted)."
+  (when-let* ((shell-buffer (agent-shell--shell-buffer))
+              (input (with-current-buffer shell-buffer
+                       ;; Based on `comint-kill-input'
+                       ;; to get latest input.
+                       (buffer-substring
+                        (or (marker-position comint-accum-marker)
+	                    (process-mark (get-buffer-process (current-buffer))))
+                        (point-max)))))
+    (unless (string-empty-p (string-trim input))
+      input)))
+
 ;;; Shell
 
 (defun agent-shell-insert-shell-command-output ()
@@ -3917,7 +3940,7 @@ Returns an alist with insertion details or nil otherwise:
    (:start . START)
    (:end . END))"
   (if agent-shell-prefer-viewport-interaction
-      (agent-shell-viewport--show-buffer :text text :submit submit
+      (agent-shell-viewport--show-buffer :append text :submit submit
                                          :no-focus no-focus :shell-buffer shell-buffer)
     (agent-shell--insert-to-shell-buffer :text text :submit submit
                                          :no-focus no-focus :shell-buffer shell-buffer)))
@@ -4205,7 +4228,8 @@ Uses optional SHELL-BUFFER to make paths relative to shell project.
 
 Context could be either a region or error at point or files.
 The sources checked are controlled by `agent-shell-context-sources'."
-  (unless (derived-mode-p 'agent-shell-mode)
+  (unless (and (derived-mode-p 'agent-shell-mode)
+               (not (region-active-p)))
     (let ((agent-cwd (when shell-buffer
                        (with-current-buffer shell-buffer
                          (agent-shell-cwd)))))

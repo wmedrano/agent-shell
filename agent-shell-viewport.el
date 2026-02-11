@@ -67,10 +67,11 @@
 (defvar agent-shell-prefer-viewport-interaction)
 (defvar agent-shell-preferred-agent-config)
 
-(cl-defun agent-shell-viewport--show-buffer (&key text submit no-focus shell-buffer)
+(cl-defun agent-shell-viewport--show-buffer (&key append override submit no-focus shell-buffer)
   "Show a viewport compose buffer for the agent shell.
 
-TEXT is inserted into the viewport compose buffer.
+APPEND is appended to the viewport compose buffer.
+OVERRIDE, when non-nil, replaces content verbatim (no trimming).
 SUBMIT, when non-nil, submits after insertion.
 NO-FOCUS, when non-nil, avoids focusing the viewport compose buffer.
 SHELL-BUFFER, when non-nil, prefer this shell buffer.
@@ -85,6 +86,8 @@ Returns an alist with insertion details or nil otherwise:
     (error "Not yet supported"))
   (when no-focus
     (error "Not yet supported"))
+  (when (and append override)
+    (error "Use :append or :override but not both"))
   (when shell-buffer
     ;; Momentarily set buffer to same window, so it's recent in stack.
     (let ((current (current-buffer)))
@@ -92,42 +95,64 @@ Returns an alist with insertion details or nil otherwise:
       (pop-to-buffer-same-window current)))
   (when-let* ((shell-buffer (or shell-buffer (agent-shell--shell-buffer)))
               (viewport-buffer (agent-shell-viewport--buffer :shell-buffer shell-buffer))
-              (text (or text (agent-shell--context :shell-buffer shell-buffer) "")))
+              (text (or append (agent-shell--context :shell-buffer shell-buffer) "")))
+    (when (and override (not (string-empty-p text)))
+      (error "Cannot override"))
     (let ((insert-start nil)
           (insert-end nil))
       ;; Is there text to be inserted? Reject while busy.
       (when (and (agent-shell-viewport--busy-p
                   :viewport-buffer viewport-buffer)
-                 (not (string-empty-p (string-trim text))))
+                 (or (not (string-empty-p (string-trim text)))
+                     (and override (not (string-empty-p (string-trim override))))))
         (user-error "Busy... please wait"))
       (agent-shell--display-buffer viewport-buffer)
+      (when (and override
+                 (with-current-buffer viewport-buffer
+                   ;; viewport buffer empty?
+                   (not (= (buffer-size) 0))))
+        (unless (y-or-n-p "Compose buffer is not empty.  Override?")
+          ;; User does not want to override.
+          ;; Treat as regurlar text (typically appended).
+          (setq text (concat text
+                             (unless (string-empty-p text)
+                               "\n\n")
+                             override))
+          (setq override nil)))
       ;; TODO: Do we need to get prompt and partial response,
       ;; in case viewport compose buffer is created for the
       ;; first time on an ongoing/busy shell session?
-      (if (agent-shell-viewport--busy-p)
-          (agent-shell-viewport-view-mode)
-        (if (derived-mode-p 'agent-shell-viewport-edit-mode)
-            (unless (string-empty-p text)
-              (save-excursion
-                (goto-char (point-max))
-                (setq insert-start (point))
-                (unless (string-empty-p text)
-                  (insert "\n\n" text))
-                (setq insert-end (point))))
-          (agent-shell-viewport-edit-mode)
-          ;; Transitioned to edit mode. Wipe content.
-          (agent-shell-viewport--initialize)
-          ;; Restore snapshot if needed.
-          (when-let ((snapshot agent-shell-viewport--compose-snapshot))
-            (insert (map-elt snapshot :content))
-            (goto-char (map-elt snapshot :location))
-            (setq agent-shell-viewport--compose-snapshot nil))
+      (cond
+       ((agent-shell-viewport--busy-p)
+        (agent-shell-viewport-view-mode))
+       (override
+        (agent-shell-viewport-edit-mode)
+        (agent-shell-viewport--initialize)
+        (setq insert-start (point))
+        (insert override)
+        (setq insert-end (point)))
+       ((derived-mode-p 'agent-shell-viewport-edit-mode)
+        (unless (string-empty-p text)
           (save-excursion
             (goto-char (point-max))
             (setq insert-start (point))
-            (unless (string-empty-p text)
-              (insert "\n\n" text))
+            (insert "\n\n" text)
             (setq insert-end (point)))))
+       (t
+        (agent-shell-viewport-edit-mode)
+        ;; Transitioned to edit mode. Wipe content.
+        (agent-shell-viewport--initialize)
+        ;; Restore snapshot if needed.
+        (when-let ((snapshot agent-shell-viewport--compose-snapshot))
+          (insert (map-elt snapshot :content))
+          (goto-char (map-elt snapshot :location))
+          (setq agent-shell-viewport--compose-snapshot nil))
+        (save-excursion
+          (goto-char (point-max))
+          (setq insert-start (point))
+          (unless (string-empty-p text)
+            (insert "\n\n" text))
+          (setq insert-end (point)))))
       `((:buffer . ,viewport-buffer)
         (:start . ,insert-start)
         (:end . ,insert-end)))))
@@ -251,6 +276,7 @@ Optionally set its PROMPT and RESPONSE."
       (markdown-overlays-put))))
 
 (defun agent-shell-viewport--ensure-buffer ()
+  "Ensure current buffer is a viewport and err otherwise."
   (unless (or (derived-mode-p 'agent-shell-viewport-view-mode)
               (derived-mode-p 'agent-shell-viewport-edit-mode))
     (user-error "Not in a shell viewport buffer")))
