@@ -854,6 +854,20 @@ While I'm a fan of =cl-defun=, please limit =cl= usage to =cl-defun= if possible
                       (:color . "Gray")))
 #+end_src
 
+*** Avoid unnecessary =let=/local variables
+
+Prefer inlining single-use expressions rather than binding them to intermediate =let=, unless the offer significant readability improvements. LLM models tend to introduce unnecessary local variables for something like =map-elt= (the equivalent of saving =foo.someField= to a local var in other languages).
+
+#+begin_src emacs-lisp :lexical no
+  ;; Avoid
+  (let* ((usage (map-elt response 'usage))
+         (total-tokens (map-elt usage 'totalTokens)))
+    (do-something total-tokens))
+
+  ;; Prefer
+  (do-something (map-nested-elt response '(usage totalTokens)))
+#+end_src
+
 *** Code/feature consistency
 
 Please try to look for a similar feature in the code base and replicate an existing pattern usage if possible.
