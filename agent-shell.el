@@ -784,7 +784,7 @@ When FORCE is non-nil, skip confirmation prompt."
    (lambda (command shell)
      (agent-shell--handle
       :command command
-      :shell shell))))
+      :shell-buffer (map-elt shell :buffer)))))
 
 (defvar-keymap agent-shell-mode-map
   :parent shell-maker-mode-map
@@ -801,10 +801,10 @@ When FORCE is non-nil, skip confirmation prompt."
 
 (shell-maker-define-major-mode (agent-shell--make-shell-maker-config) agent-shell-mode-map)
 
-(cl-defun agent-shell--handle (&key command shell)
-  "Handle SHELL COMMAND (and lazy initialize the ACP stack).
+(cl-defun agent-shell--handle (&key command shell-buffer)
+  "Handle SHELL-BUFFER COMMAND (and lazy initialize the ACP stack).
 
-SHELL is from `shell-maker'.
+SHELL-BUFFER is the shell buffer.
 
 Flow:
 
@@ -819,69 +819,68 @@ Flow:
                 |-> Authenticate (optional)
                      |-> Start prompt session
                           |-> Send COMMAND/prompt (finally!)"
-  (with-current-buffer (map-elt shell :buffer)
+  (with-current-buffer shell-buffer
     (unless (derived-mode-p 'agent-shell-mode)
       (error "Not in a shell"))
     (map-put! (agent-shell--state) :request-count
               ;; TODO: Make public in shell-maker.
               (shell-maker--current-request-id))
     (cond ((not (map-elt (agent-shell--state) :client))
-           (when-let (((map-elt shell :buffer))
-                      (viewport-buffer (agent-shell-viewport--buffer
-                                        :shell-buffer (map-elt shell :buffer)
+           (when-let ((viewport-buffer (agent-shell-viewport--buffer
+                                        :shell-buffer shell-buffer
                                         :existing-only t)))
              (with-current-buffer viewport-buffer
                (agent-shell-viewport-view-mode)
                (agent-shell-viewport--initialize
                 :prompt  command
                 :response (agent-shell-viewport--response))))
-           (when (agent-shell--initialize-client :shell shell)
-             (agent-shell--handle :command command :shell shell)))
+           (when (agent-shell--initialize-client)
+             (agent-shell--handle :command command :shell-buffer shell-buffer)))
           ((or (not (map-nested-elt (agent-shell--state) '(:client :request-handlers)))
                (not (map-nested-elt (agent-shell--state) '(:client :notification-handlers)))
                (not (map-nested-elt (agent-shell--state) '(:client :error-handlers))))
-           (when (agent-shell--initialize-subscriptions :shell shell)
-             (agent-shell--handle :command command :shell shell)))
+           (when (agent-shell--initialize-subscriptions)
+             (agent-shell--handle :command command :shell-buffer shell-buffer)))
           ((not (map-elt (agent-shell--state) :initialized))
            (agent-shell--initiate-handshake
-            :shell shell
+            :shell-buffer shell-buffer
             :on-initiated (lambda ()
                             (map-put! (agent-shell--state) :initialized t)
-                            (agent-shell--handle :command command :shell shell))))
+                            (agent-shell--handle :command command :shell-buffer shell-buffer))))
           ((and (map-elt (agent-shell--state) :needs-authentication)
                 (not (map-elt (agent-shell--state) :authenticated)))
            (agent-shell--authenticate
-            :shell shell
+            :shell-buffer shell-buffer
             :on-authenticated (lambda ()
                                 (map-put! (agent-shell--state) :authenticated t)
-                                (agent-shell--handle :command command :shell shell))))
+                                (agent-shell--handle :command command :shell-buffer shell-buffer))))
           ((not (map-nested-elt (agent-shell--state) '(:session :id)))
            (agent-shell--initiate-session
-            :shell shell
+            :shell-buffer shell-buffer
             :on-session-init (lambda ()
-                               (agent-shell--handle :command command :shell shell))))
+                               (agent-shell--handle :command command :shell-buffer shell-buffer))))
           ((and (map-nested-elt (agent-shell--state) '(:agent-config :default-model-id))
                 (funcall (map-nested-elt (agent-shell--state)
                                          '(:agent-config :default-model-id)))
                 (not (map-elt (agent-shell--state) :set-model)))
            (agent-shell--set-default-model
-            :shell shell
+            :shell-buffer shell-buffer
             :model-id (funcall (map-nested-elt (agent-shell--state)
                                                '(:agent-config :default-model-id)))
             :on-model-changed (lambda ()
                                 (map-put! (agent-shell--state) :set-model t)
-                                (agent-shell--handle :command command :shell shell))))
+                                (agent-shell--handle :command command :shell-buffer shell-buffer))))
           ((and (map-nested-elt (agent-shell--state) '(:agent-config :default-session-mode-id))
                 (funcall (map-nested-elt (agent-shell--state) '(:agent-config :default-session-mode-id)))
                 (not (map-elt (agent-shell--state) :set-session-mode)))
            (agent-shell--set-default-session-mode
-            :shell shell
+            :shell-buffer shell-buffer
             :mode-id (funcall (map-nested-elt (agent-shell--state) '(:agent-config :default-session-mode-id)))
             :on-mode-changed (lambda ()
                                (map-put! (agent-shell--state) :set-session-mode t)
-                               (agent-shell--handle :command command :shell shell))))
+                               (agent-shell--handle :command command :shell-buffer shell-buffer))))
           (t
-           (agent-shell--send-command :prompt command :shell shell)))))
+           (agent-shell--send-command :prompt command :shell-buffer shell-buffer)))))
 
 (cl-defun agent-shell--on-error (&key state error)
   "Handle ERROR with SHELL an STATE."
@@ -1614,8 +1613,8 @@ DIFF should be in the form returned by `agent-shell--make-diff-info':
             (buffer-string)))
       (delete-file old-file)
       (delete-file new-file))))
-(cl-defun agent-shell--make-error-handler (&key state shell)
-  "Create ACP error handler with SHELL STATE."
+(cl-defun agent-shell--make-error-handler (&key state shell-buffer)
+  "Create ACP error handler with SHELL-BUFFER STATE."
   (lambda (error raw-message)
     (let-alist error
       (with-current-buffer (map-elt state :buffer)
@@ -1631,8 +1630,9 @@ DIFF should be in the form returned by `agent-shell--make-diff-info':
                 :raw-message raw-message)
          :create-new t)))
     ;; TODO: Mark buffer command with shell failure.
-    (with-current-buffer (map-elt state :buffer)
-      (funcall (map-elt shell :finish-output) t))))
+    (with-current-buffer shell-buffer
+      (shell-maker-finish-output :config shell-maker--config
+                                 :success t))))
 
 (defun agent-shell--save-tool-call (state tool-call-id tool-call)
   "Store TOOL-CALL with TOOL-CALL-ID in STATE's :tool-calls alist."
@@ -1919,9 +1919,8 @@ variable (see makunbound)"))
          (default-directory (agent-shell-cwd))
          (shell-buffer
           (shell-maker-start agent-shell--shell-maker-config
-                             t  ; Always use no-focus, handle display below
-                             (when agent-shell-show-welcome-message
-                               (map-elt config :welcome-function))
+                             t  ;; Always use no-focus, handle display below
+                             nil ;; Defer showing welcome text
                              new-session
                              (agent-shell--format-buffer-name (map-elt config :buffer-name) (agent-shell--project-name))
                              (map-elt config :mode-line-name))))
@@ -1979,7 +1978,21 @@ variable (see makunbound)"))
         ;; transcript capabilities. Unalias to hide this in favor
         ;; of agent-shell's agent-shell--transcript-file usage.
         (fmakunbound 'agent-shell-save-session-transcript)
-        (setq-local shell-maker-prompt-before-killing-buffer nil)))
+        (setq-local shell-maker-prompt-before-killing-buffer nil))
+      ;; Show deferred welcome text,
+      ;; but first wipe buffer content.
+      (let ((inhibit-read-only t))
+        (erase-buffer))
+      (set-marker (process-mark (shell-maker--process)) (point-max))
+      (when (and agent-shell-show-welcome-message
+                 (map-elt config :welcome-function))
+        (shell-maker-write-output
+         :config shell-maker--config
+         :output (funcall (map-elt config :welcome-function)
+                          shell-maker--config)))
+      (shell-maker-finish-output
+       :config shell-maker--config
+       :success nil))
     ;; Display buffer if no-focus was nil, respecting agent-shell-display-action
     (unless no-focus
       (agent-shell--display-buffer shell-buffer))
@@ -2622,8 +2635,8 @@ INSTALL-INSTRUCTIONS is optional installation guidance."
 
 ;;; Initialization
 
-(cl-defun agent-shell--initialize-client (&key shell)
-  "Initialize ACP client with SHELL."
+(cl-defun agent-shell--initialize-client ()
+  "Initialize ACP client."
   (agent-shell--update-fragment
    :state (agent-shell--state)
    :block-id "starting"
@@ -2638,12 +2651,14 @@ INSTALL-INSTRUCTIONS is optional installation guidance."
                   :client (funcall (map-elt agent-shell--state :client-maker)
                                    (map-elt agent-shell--state :buffer)))
         t)
-    (funcall (map-elt shell :write-output) "No :client-maker found")
-    (funcall (map-elt shell :finish-output) nil)
+    (shell-maker-write-output :config shell-maker--config
+                              :output "No :client-maker found")
+    (shell-maker-finish-output :config shell-maker--config
+                               :success nil)
     nil))
 
-(cl-defun agent-shell--initialize-subscriptions (&key shell)
-  "Initialize ACP client subscriptions with SHELL."
+(cl-defun agent-shell--initialize-subscriptions ()
+  "Initialize ACP client subscriptions."
   (agent-shell--update-fragment
    :state agent-shell--state
    :block-id "starting"
@@ -2656,12 +2671,14 @@ INSTALL-INSTRUCTIONS is optional installation guidance."
       (progn
         (agent-shell--subscribe-to-client-events :state agent-shell--state)
         t)
-    (funcall (map-elt shell :write-output) "No :client found")
-    (funcall (map-elt shell :finish-output) nil)
+    (shell-maker-write-output :config shell-maker--config
+                              :output "No :client found")
+    (shell-maker-finish-output :config shell-maker--config
+                               :success nil)
     nil))
 
-(cl-defun agent-shell--initiate-handshake (&key shell on-initiated)
-  "Initiate ACP handshake with SHELL.
+(cl-defun agent-shell--initiate-handshake (&key shell-buffer on-initiated)
+  "Initiate ACP handshake with SHELL-BUFFER.
 
 Must provide ON-INITIATED (lambda ())."
   (unless on-initiated
@@ -2682,7 +2699,7 @@ Must provide ON-INITIATED (lambda ())."
              :read-text-file-capability agent-shell-text-file-capabilities
              :write-text-file-capability agent-shell-text-file-capabilities)
    :on-success (lambda (response)
-                 (with-current-buffer (map-elt shell :buffer)
+                 (with-current-buffer shell-buffer
                    ;; Save prompt capabilities from agent, converting to internal symbols
                    (when-let ((prompt-capabilities
                                (map-nested-elt response '(agentCapabilities promptCapabilities))))
@@ -2706,10 +2723,10 @@ Must provide ON-INITIATED (lambda ())."
                       :body (agent-shell--format-agent-capabilities agent-capabilities))))
                  (funcall on-initiated))
    :on-failure (agent-shell--make-error-handler
-                :state agent-shell--state :shell shell)))
+                :state agent-shell--state :shell-buffer shell-buffer)))
 
-(cl-defun agent-shell--authenticate (&key shell on-authenticated)
-  "Initiate ACP authentication with SHELL.
+(cl-defun agent-shell--authenticate (&key shell-buffer on-authenticated)
+  "Initiate ACP authentication with SHELL-BUFFER.
 
 Must provide ON-AUTHENTICATED (lambda ())."
   (with-current-buffer (map-elt agent-shell--state :buffer)
@@ -2726,12 +2743,15 @@ Must provide ON-AUTHENTICATED (lambda ())."
                      ;; TODO: More to be handled?
                      (funcall on-authenticated))
        :on-failure (agent-shell--make-error-handler
-                    :state (agent-shell--state) :shell shell))
-    (funcall (map-elt shell :write-output) "No :authenticate-request-maker")
-    (funcall (map-elt shell :finish-output) nil)))
+                    :state (agent-shell--state) :shell-buffer shell-buffer))
+    (shell-maker-write-output :config shell-maker--config
+                              :output "No :authenticate-request-maker")
+    (shell-maker-finish-output :config shell-maker--config
+                               :success nil)))
 
-(cl-defun agent-shell--set-default-model (&key shell model-id on-model-changed)
-  "Initiate ACP authentication with SHELL MODEL-ID and ON-MODEL-CHANGED."
+(cl-defun agent-shell--set-default-model (&key shell-buffer model-id on-model-changed)
+  "Set default model to MODEL-ID in SHELL-BUFFER.
+Call ON-MODEL-CHANGED on success."
   (when-let ((session-id (map-nested-elt (agent-shell--state) '(:session :id))))
     (with-current-buffer (map-elt agent-shell--state :buffer)
       (agent-shell--update-fragment
@@ -2758,10 +2778,11 @@ Must provide ON-AUTHENTICATED (lambda ())."
                    (when on-model-changed
                      (funcall on-model-changed)))
      :on-failure (agent-shell--make-error-handler
-                  :state (agent-shell--state) :shell shell))))
+                  :state (agent-shell--state) :shell-buffer shell-buffer))))
 
-(cl-defun agent-shell--set-default-session-mode (&key shell mode-id on-mode-changed)
-  "Set default session mode with SHELL MODE-ID and ON-MODE-CHANGED."
+(cl-defun agent-shell--set-default-session-mode (&key shell-buffer mode-id on-mode-changed)
+  "Set default session mode to MODE-ID in SHELL-BUFFER.
+Call ON-MODE-CHANGED on success."
   (when-let ((session-id (map-nested-elt (agent-shell--state) '(:session :id))))
     (with-current-buffer (map-elt agent-shell--state :buffer)
       (agent-shell--update-fragment
@@ -2788,10 +2809,10 @@ Must provide ON-AUTHENTICATED (lambda ())."
                    (when on-mode-changed
                      (funcall on-mode-changed)))
      :on-failure (agent-shell--make-error-handler
-                  :state (agent-shell--state) :shell shell))))
+                  :state (agent-shell--state) :shell-buffer shell-buffer))))
 
-(cl-defun agent-shell--initiate-session (&key shell on-session-init)
-  "Initiate ACP session creation with SHELL.
+(cl-defun agent-shell--initiate-session (&key shell-buffer on-session-init)
+  "Initiate ACP session creation with SHELL-BUFFER.
 
 Must provide ON-SESSION-INIT (lambda ())."
   (unless on-session-init
@@ -2849,7 +2870,7 @@ Must provide ON-SESSION-INIT (lambda ())."
                  (agent-shell--update-header-and-mode-line)
                  (funcall on-session-init))
    :on-failure (agent-shell--make-error-handler
-                :state agent-shell--state :shell shell)))
+                :state agent-shell--state :shell-buffer shell-buffer)))
 
 (defun agent-shell--eval-dynamic-values (obj)
   "Recursively evaluate any lambda values in OBJ.
@@ -3072,8 +3093,8 @@ If FILE-PATH is not an image, returns nil."
                     "\n")
    :create-new t))
 
-(cl-defun agent-shell--send-command (&key prompt shell)
-  "Send PROMPT to agent using SHELL."
+(cl-defun agent-shell--send-command (&key prompt shell-buffer)
+  "Send PROMPT to agent using SHELL-BUFFER."
   (let* ((content-blocks (condition-case nil
                              (agent-shell--build-content-blocks prompt)
                            (error `[((type . "text")
@@ -3092,9 +3113,8 @@ If FILE-PATH is not an image, returns nil."
                    prompt)
      :file-path agent-shell--transcript-file)
 
-    (when-let (((map-elt shell :buffer))
-               (viewport-buffer (agent-shell-viewport--buffer
-                                 :shell-buffer (map-elt shell :buffer)
+    (when-let ((viewport-buffer (agent-shell-viewport--buffer
+                                 :shell-buffer shell-buffer
                                  :existing-only t)))
       (with-current-buffer viewport-buffer
         (agent-shell-viewport-view-mode)
@@ -3143,10 +3163,11 @@ If FILE-PATH is not an image, returns nil."
                       :heartbeat (map-elt agent-shell--state :heartbeat))
                      (unless success
                        (agent-shell--display-pending-requests))
-                     (funcall (map-elt shell :finish-output) t)
+                     (shell-maker-finish-output :config shell-maker--config
+                                               :success t)
                      ;; Update viewport header (longer busy)
                      (when-let ((viewport-buffer (agent-shell-viewport--buffer
-                                                  :shell-buffer (map-elt shell :buffer)
+                                                  :shell-buffer shell-buffer
                                                   :existing-only t)))
                        (with-current-buffer viewport-buffer
                          (agent-shell-viewport--update-header)))
@@ -3155,13 +3176,13 @@ If FILE-PATH is not an image, returns nil."
      :on-failure (lambda (error raw-message)
                    ;; Display pending requests on failure.
                    (agent-shell--display-pending-requests)
-                   (funcall (agent-shell--make-error-handler :state agent-shell--state :shell shell)
+                   (funcall (agent-shell--make-error-handler :state agent-shell--state :shell-buffer shell-buffer)
                             error raw-message)
                    (agent-shell-heartbeat-stop
                     :heartbeat (map-elt agent-shell--state :heartbeat))
                    ;; Update viewport header (longer busy)
                    (when-let ((viewport-buffer (agent-shell-viewport--buffer
-                                                :shell-buffer (map-elt shell :buffer)
+                                                :shell-buffer shell-buffer
                                                 :existing-only t)))
                      (with-current-buffer viewport-buffer
                        (agent-shell-viewport--update-header)))))))
