@@ -314,7 +314,7 @@ Assume screenshot file path will be appended to this list."
          (cons :save (lambda (file-path)
                        (let ((exit-code (call-process "pngpaste" nil nil nil file-path)))
                          (unless (zerop exit-code)
-                           (error "pngpaste failed with exit code %d" exit-code))))))
+                           (error "Command pngpaste failed with exit code %d" exit-code))))))
    (list (cons :command "xclip")
          (cons :save (lambda (file-path)
                        (with-temp-buffer
@@ -323,7 +323,7 @@ Assume screenshot file path will be appended to this list."
                                                         "-selection" "clipboard"
                                                         "-t" "image/png" "-o")))
                            (unless (zerop exit-code)
-                             (error "xclip failed with exit code %d" exit-code))
+                             (error "Command xclip failed with exit code %d" exit-code))
                            (write-region (point-min) (point-max) file-path nil 'silent)))))))
   "Handlers for saving clipboard images to a file.
 
@@ -446,8 +446,9 @@ configuration alist for backwards compatibility."
   :group 'agent-shell)
 
 (defcustom agent-shell-session-load-strategy 'latest
-  "How to choose an existing session when both
-`session/list' and `session/load' are available.
+  "How to choose an existing session.
+
+Only possible if either `session/list' or `session/load' are available.
 
 Available values:
 
@@ -2871,7 +2872,7 @@ Initialization events (emitted in order):
   `session-prompt'      - About to prompt user for session selection
   `session-selected'    - Session chosen (new or existing)
     :data contains :session-id (nil when starting new)
-  `session-selection-cancelled' - User cancelled session selection (C-g)
+  `session-selection-cancelled' - User cancelled session selection
   `init-finished'       - Initialization pipeline completed
 
 Session events:
