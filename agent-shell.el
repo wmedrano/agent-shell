@@ -910,6 +910,10 @@ Flow:
   (with-current-buffer shell-buffer
     (unless (derived-mode-p 'agent-shell-mode)
       (error "Not in a shell"))
+    (when (and command
+               (not agent-shell-deferred-initialization)
+               (not (map-nested-elt (agent-shell--state) '(:session :id))))
+      (user-error "Session not ready... please wait"))
     (map-put! (agent-shell--state) :request-count
               ;; TODO: Make public in shell-maker.
               (shell-maker--current-request-id))

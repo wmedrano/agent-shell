@@ -162,6 +162,10 @@ Returns an alist with insertion details or nil otherwise:
   (interactive)
   (unless (derived-mode-p 'agent-shell-viewport-edit-mode)
     (user-error "Not in a shell viewport buffer"))
+  (when (and (not agent-shell-deferred-initialization)
+             (not (with-current-buffer (agent-shell-viewport--shell-buffer)
+                    (map-nested-elt agent-shell--state '(:session :id)))))
+    (user-error "Session not ready... please wait"))
   (setq agent-shell-viewport--compose-snapshot nil)
   (if agent-shell-prefer-viewport-interaction
       (agent-shell-viewport-compose-send-and-wait-for-response)
