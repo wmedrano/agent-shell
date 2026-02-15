@@ -3199,7 +3199,11 @@ for the current year, or \"Mon DD, YYYY\" for other years."
 
 (defun agent-shell--session-choice-label (acp-session)
   "Return completion label for ACP-SESSION."
-  (let* ((title (or (map-elt acp-session 'title)
+  (let* ((cwd (or (map-elt acp-session 'cwd) ""))
+         (dir (propertize (file-name-nondirectory (directory-file-name cwd))
+                          'face 'font-lock-keyword-face))
+         (dir-padding (make-string (max 2 (- 22 (length (file-name-nondirectory (directory-file-name cwd))))) ?\s))
+         (title (or (map-elt acp-session 'title)
                     "Untitled"))
          (title (if (> (length title) 50)
                     (concat (substring title 0 47) "...")
@@ -3210,7 +3214,7 @@ for the current year, or \"Mon DD, YYYY\" for other years."
          (date-str (propertize (agent-shell--format-session-date updated-at)
                                'face 'font-lock-comment-face))
          (padding (make-string (max 2 (- 52 (length title))) ?\s)))
-    (concat title padding date-str)))
+    (concat dir dir-padding title padding date-str)))
 
 (defun agent-shell--prompt-select-session (acp-sessions)
   "Prompt to choose one from ACP-SESSIONS.
