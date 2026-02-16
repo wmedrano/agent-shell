@@ -1068,6 +1068,15 @@ otherwise returns COMMAND unchanged."
     ((pred listp) (append agent-shell-container-command-runner command))
     (_ command)))
 
+(defun agent-shell--tool-call-command-to-string (command)
+  "Normalize tool call COMMAND to a display string.
+
+COMMAND may be a shell command string or an argv vector."
+  (cond ((stringp command) command)
+        ((vectorp command)
+         (combine-and-quote-strings (append command nil)))
+        (t (error "Unexpected tool-call command type: %S" (type-of command)))))
+
 (cl-defun agent-shell--on-notification (&key state notification)
   "Handle incoming notification using SHELL, STATE, and NOTIFICATION."
   (let-alist notification
@@ -1082,12 +1091,14 @@ otherwise returns COMMAND unchanged."
                                             ((and (string= (map-elt update 'title) "Skill")
                                                   (map-nested-elt update '(rawInput command)))
                                              (format "Skill: %s"
-                                                     (map-nested-elt update '(rawInput command))))
+                                                     (agent-shell--tool-call-command-to-string
+                                                      (map-nested-elt update '(rawInput command)))))
                                             (t
                                              (map-elt update 'title))))
                               (cons :status (map-elt update 'status))
                               (cons :kind (map-elt update 'kind))
-                              (cons :command (map-nested-elt update '(rawInput command)))
+                              (cons :command (agent-shell--tool-call-command-to-string
+                                              (map-nested-elt update '(rawInput command))))
                               (cons :description (map-nested-elt update '(rawInput description)))
                               (cons :content (map-elt update 'content)))
                         (when-let ((diff (agent-shell--make-diff-info :tool-call update)))
@@ -1207,7 +1218,8 @@ otherwise returns COMMAND unchanged."
                           (when-let* ((should-upgrade-title
                                        (string= (map-nested-elt state `(:tool-calls ,.toolCallId :title))
                                                 "bash"))
-                                      (command (map-nested-elt update '(rawInput command))))
+                                      (command (agent-shell--tool-call-command-to-string
+                                                (map-nested-elt update '(rawInput command)))))
                             (list (cons :title command)))
                           (when-let ((diff (agent-shell--make-diff-info :tool-call update)))
                             (list (cons :diff diff)))))
@@ -4262,7 +4274,8 @@ For example:
                                    (agent-shell-interrupt t))))
                    map))
          (title (let* ((title (map-nested-elt request '(params toolCall title)))
-                       (command (map-nested-elt request '(params toolCall rawInput command)))
+                       (command (agent-shell--tool-call-command-to-string
+                                 (map-nested-elt request '(params toolCall rawInput command))))
                        (command-first-line (when (and (stringp command)
                                                       (not (string-empty-p command)))
                                              (if (string-match "\n" command)
