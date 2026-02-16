@@ -867,6 +867,20 @@ When FORCE is non-nil, skip confirmation prompt."
       :command command
       :shell-buffer (map-elt shell :buffer)))))
 
+(defun agent-shell--filter-buffer-substring (start end &optional delete)
+  "Return the buffer substring between BEG and END, after filtering.
+Strip the text properties `line-prefix' and `wrap-prefix' from the
+copied substring.  If DELETE is non-nil, delete the text between BEG and
+END from the buffer."
+  (let ((text (if delete
+                  (prog1 (buffer-substring start end)
+                    (delete-region start end))
+                (buffer-substring start end))))
+    (remove-text-properties 0 (length text)
+                            '(line-prefix nil wrap-prefix nil)
+                            text)
+    text))
+
 (defvar-keymap agent-shell-mode-map
   :parent shell-maker-mode-map
   :doc "Keymap for `agent-shell-mode'."
@@ -2189,6 +2203,7 @@ variable (see makunbound)"))
                                       :agent-config config))
       ;; Initialize buffer-local shell-maker-config
       (setq-local agent-shell--shell-maker-config shell-maker-config)
+      (setq-local filter-buffer-substring-function #'agent-shell--filter-buffer-substring)
       (agent-shell--update-header-and-mode-line)
       (add-hook 'kill-buffer-hook #'agent-shell--clean-up nil t)
       (agent-shell-ui-mode +1)
