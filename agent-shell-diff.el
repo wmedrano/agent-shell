@@ -47,6 +47,16 @@ on-exit callback from running when the buffer is killed.")
 (defvar-local agent-shell-diff--reject-all-command nil
   "Buffer-local command to reject all changes in the diff.")
 
+(defcustom agent-shell-diff-header-style 'fancy
+  "How to display diff file headers (---/+++) and hunk headers (@@).
+- `fancy': Hide ---/+++ lines; replace @@ lines with a Unicode box.
+- `diff':  Show raw diff lines unchanged.
+- `none':  Hide both ---/+++ and @@ lines entirely."
+  :type '(choice (const :tag "Fancy box" fancy)
+                 (const :tag "Raw diff" diff)
+                 (const :tag "Hide all" none))
+  :group 'agent-shell)
+
 (defvar agent-shell-diff-mode-map
   (let ((map (make-sparse-keymap)))
     (define-key map (kbd "n") #'diff-hunk-next)
@@ -118,30 +128,39 @@ Arguments:
                 ;; Remove "Diff finished." added by diff-no-select
                 (delete-region (progn (goto-char (point-max)) (forward-line -1) (forward-line 0) (point))
                                (point-max))
+                ;; Hide --- and +++ lines (unless showing raw diff)
+                (unless (eq agent-shell-diff-header-style 'diff)
+                  (goto-char (point-min))
+                  (while (re-search-forward "^\\(---\\|\\+\\+\\+\\).*\n" nil t)
+                    (let ((overlay (make-overlay (match-beginning 0) (match-end 0))))
+                      (overlay-put overlay 'category 'diff-header)
+                      (overlay-put overlay 'display "")
+                      (overlay-put overlay 'evaporate t))))
+                ;; Style @@ hunk header lines
                 (goto-char (point-min))
-                ;; Hide --- and +++ lines
-                (while (re-search-forward "^\\(---\\|\\+\\+\\+\\).*\n" nil t)
-                  (let ((overlay (make-overlay (match-beginning 0) (match-end 0))))
-                    (overlay-put overlay 'category 'diff-header)
-                    (overlay-put overlay 'display "")
-                    (overlay-put overlay 'evaporate t)))
-                ;; Replace @@ lines with "Changes"
-                (goto-char (point-min))
-                (while (re-search-forward "^@@.*@@.*\n" nil t)
-                  (let ((overlay (make-overlay (match-beginning 0) (match-end 0)))
-                        (face 'diff-hunk-header))  ; or any face you prefer
-                    (overlay-put overlay 'category 'diff-header)
-                    ;; Intended display is:
-                    ;; ╭─────────╮
-                    ;; │ changes │
-                    ;; ╰─────────╯
-                    ;; Using before-string so diff-hunk-next
-                    ;; lands on "│" instead of "╭".
-                    (overlay-put overlay 'before-string
-                                 (propertize "\n╭─────────╮\n" 'face face))
-                    (overlay-put overlay 'display
-                                 (propertize "│ changes │\n╰─────────╯\n\n" 'face face))
-                    (overlay-put overlay 'evaporate t)))))
+                (pcase agent-shell-diff-header-style
+                  ('none
+                   (while (re-search-forward "^@@.*@@.*\n" nil t)
+                     (let ((overlay (make-overlay (match-beginning 0) (match-end 0))))
+                       (overlay-put overlay 'category 'diff-header)
+                       (overlay-put overlay 'display "")
+                       (overlay-put overlay 'evaporate t))))
+                  ('fancy
+                   (while (re-search-forward "^@@.*@@.*\n" nil t)
+                     (let ((overlay (make-overlay (match-beginning 0) (match-end 0)))
+                           (face 'diff-hunk-header))
+                       (overlay-put overlay 'category 'diff-header)
+                       ;; Intended display is:
+                       ;; ╭─────────╮
+                       ;; │ changes │
+                       ;; ╰─────────╯
+                       ;; Using before-string so diff-hunk-next
+                       ;; lands on "│" instead of "╭".
+                       (overlay-put overlay 'before-string
+                                    (propertize "\n╭─────────╮\n" 'face face))
+                       (overlay-put overlay 'display
+                                    (propertize "│ changes │\n╰─────────╯\n\n" 'face face))
+                       (overlay-put overlay 'evaporate t)))))))
             (goto-char (point-min))
             (ignore-errors (diff-hunk-next))
             (setq agent-shell-diff--file file
